@@ -1,1 +1,1 @@
-# gmail-manager-java
+# email-manager-java
