@@ -12,6 +12,8 @@ import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.GmailScopes;
 import com.google.api.services.gmail.model.Label;
 import com.google.api.services.gmail.model.ListLabelsResponse;
+import com.google.api.services.gmail.model.Message;
+import com.google.api.services.gmail.model.ListMessagesResponse;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -23,6 +25,7 @@ import java.nio.file.Paths;
 import java.security.GeneralSecurityException;
 import java.util.Collections;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Set;
 import java.util.HashSet;
 
@@ -45,7 +48,7 @@ public class EmailManager {
    * Global instance of the scopes required by this quickstart.
    * If modifying these scopes, delete your previously saved tokens/ folder.
    */
-  private static final List<String> SCOPES = Collections.singletonList(GmailScopes.GMAIL_LABELS);
+  private static final List<String> SCOPES = Collections.singletonList(GmailScopes.GMAIL_MODIFY);
   private static final String CREDENTIALS_FILE_PATH = "/credentials.json";
 
   /**
@@ -115,6 +118,17 @@ public class EmailManager {
       Files.createFile(addressesFile);
     }
     Set<String> addresses = getAddresses(addressesFile);
+
+    // Read emails
+    ListMessagesResponse messagesResponse = service.users().messages().list(user).setQ("from:nytdirect@nytimes.com").setMaxResults(10l).execute();
+    List<Message> messageIDs = messagesResponse.getMessages();
+    List<Message> messages = new ArrayList<>();
+    for (Message messageID : messageIDs) {
+      messages.add(service.users().messages().get(user, messageID.getId()).execute());
+    }
+    for (Message message : messages) {
+      System.out.printf("- %s\n", message.getSnippet());
+    }
 
     // Write to addresses file if necessary
 //    PrintWriter writer = new PrintWriter(Files.newBufferedWriter(addressesFile));
