@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.BufferedReader;
+import java.io.PrintWriter;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -32,6 +33,8 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Set;
 import java.util.HashSet;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 
 /* class to demonstrate use of Gmail list labels API */
 public class EmailManager {
@@ -59,11 +62,6 @@ public class EmailManager {
    * Directory to store email addresses whose emails should be deleted.
    */
   private static final String ADDRESSES_FILE_PATH = "addresses.txt";
-
-  /**
-   * Length of time to wait before email deletion.
-   */
-  private static final int EMAIL_DELETION_TIME = 7;
 
   /**
    * Creates an authorized Credential object.
@@ -94,8 +92,8 @@ public class EmailManager {
     return credential;
   }
 
-  // Prompt for each address with read email
   // Prompt to unsubscribe from unread emails
+  // More convenient configuration
   public static void main(String... args) throws IOException, GeneralSecurityException {
     // Build a new authorized API client service.
     final NetHttpTransport HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
@@ -103,18 +101,8 @@ public class EmailManager {
         .setApplicationName(APPLICATION_NAME)
         .build();
 
-    // Print the labels in the user's account.
+    // Set user
     String user = "me";
-    ListLabelsResponse listResponse = service.users().labels().list(user).execute();
-    List<Label> labels = listResponse.getLabels();
-    if (labels.isEmpty()) {
-      System.out.println("No labels found.");
-    } else {
-      System.out.println("Labels:");
-      for (Label label : labels) {
-        System.out.printf("- %s\n", label.getName());
-      }
-    }
 
     // Create file with email addresses whose emails should be deleted
     Path addressesFile = Paths.get(EmailManager.class.getResource("/").getPath() + ADDRESSES_FILE_PATH);
@@ -123,17 +111,28 @@ public class EmailManager {
     }
     Set<String> addresses = getAddresses(addressesFile);
 
+    // Write to addresses file if necessary
+    PrintWriter writer = new PrintWriter(Files.newBufferedWriter(addressesFile));
+
+    // Prompt on whether or not to delete email addresses with emails older than a specified age
+    BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+    long deletionAge = 7;
+    System.out.println("Set number of days for automatic email deletion: (enter for default of 7 days)");
+    String line = reader.readLine();
+    if (!line.equals("")) {
+      deletionAge = Long.parseLong(line);
+    }
+
     // Read emails
-    ListMessagesResponse messagesResponse = service.users().messages().list(user).setQ("from:nytdirect@nytimes.com").execute();
+    LocalDate localDate = LocalDate.now().minusDays(deletionAge);
+    String date = localDate.format(DateTimeFormatter.ISO_LOCAL_DATE);
+    ListMessagesResponse messagesResponse = service.users().messages().list(user).setQ("before:"+date).execute();
     List<Message> messages = getMessages(messagesResponse.getMessages(), service, user);
     for (Message message : messages) {
       System.out.printf("- %s\n", message.getSnippet());
     }
 
-    // Write to addresses file if necessary
-//    PrintWriter writer = new PrintWriter(Files.newBufferedWriter(addressesFile));
-//
-//    writer.close();
+    writer.close();
   }
 
   private static Set<String> getAddresses(Path addressesFile) throws IOException {
@@ -160,7 +159,7 @@ public class EmailManager {
 
     BatchRequest batch = service.batch();
     for (Message partial : partials) {
-      service.users().messages().get(user, partial.getId()).setFormat("full").queue(batch, callback);
+      service.users().messages().get(user, partial.getId()).queue(batch, callback);
     }
     batch.execute();
 
