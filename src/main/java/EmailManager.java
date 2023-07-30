@@ -4,6 +4,10 @@ import com.google.api.client.extensions.jetty.auth.oauth2.LocalServerReceiver;
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
 import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets;
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
+import com.google.api.client.googleapis.batch.BatchRequest;
+import com.google.api.client.googleapis.batch.json.JsonBatchCallback;
+import com.google.api.client.googleapis.json.GoogleJsonError;
+import com.google.api.client.http.HttpHeaders;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.gson.GsonFactory;
@@ -90,7 +94,7 @@ public class EmailManager {
     return credential;
   }
 
-  // Prompt for each address and deletion interval
+  // Prompt for each address with read email
   // Prompt to unsubscribe from unread emails
   public static void main(String... args) throws IOException, GeneralSecurityException {
     // Build a new authorized API client service.
@@ -120,12 +124,8 @@ public class EmailManager {
     Set<String> addresses = getAddresses(addressesFile);
 
     // Read emails
-    ListMessagesResponse messagesResponse = service.users().messages().list(user).setQ("from:nytdirect@nytimes.com").setMaxResults(10l).execute();
-    List<Message> messageIDs = messagesResponse.getMessages();
-    List<Message> messages = new ArrayList<>();
-    for (Message messageID : messageIDs) {
-      messages.add(service.users().messages().get(user, messageID.getId()).execute());
-    }
+    ListMessagesResponse messagesResponse = service.users().messages().list(user).setQ("from:nytdirect@nytimes.com").execute();
+    List<Message> messages = getMessages(messagesResponse.getMessages(), service, user);
     for (Message message : messages) {
       System.out.printf("- %s\n", message.getSnippet());
     }
@@ -144,5 +144,26 @@ public class EmailManager {
       addresses.add(line);
     }
     return addresses;
+  }
+
+  private static List<Message> getMessages(List<Message> partials, Gmail service, String user) throws IOException {
+    List<Message> messages = new ArrayList<>();
+    JsonBatchCallback<Message> callback = new JsonBatchCallback<Message>() {
+      public void onSuccess(Message message, HttpHeaders responseHeaders) {
+        messages.add(message);
+      }
+
+      public void onFailure(GoogleJsonError e, HttpHeaders responseHeaders) {
+        System.err.println(e.getMessage());
+      }
+    };
+
+    BatchRequest batch = service.batch();
+    for (Message partial : partials) {
+      service.users().messages().get(user, partial.getId()).setFormat("full").queue(batch, callback);
+    }
+    batch.execute();
+
+    return messages;
   }
 }
