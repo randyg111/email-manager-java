@@ -18,6 +18,7 @@ import com.google.api.services.gmail.model.Label;
 import com.google.api.services.gmail.model.ListLabelsResponse;
 import com.google.api.services.gmail.model.Message;
 import com.google.api.services.gmail.model.ListMessagesResponse;
+import com.google.api.services.gmail.model.MessagePartHeader;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -33,6 +34,8 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.Map;
+import java.util.HashMap;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 
@@ -93,7 +96,8 @@ public class EmailManager {
   }
 
   // Prompt to unsubscribe from unread emails
-  // More convenient configuration
+  // Add synchronization
+  // Add gui
   public static void main(String... args) throws IOException, GeneralSecurityException {
     // Build a new authorized API client service.
     final NetHttpTransport HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
@@ -114,23 +118,29 @@ public class EmailManager {
     // Write to addresses file if necessary
     PrintWriter writer = new PrintWriter(Files.newBufferedWriter(addressesFile));
 
-    // Prompt on whether or not to delete email addresses with emails older than a specified age
+    // Prompt on number of days after which to delete emails
     BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
     long deletionAge = 7;
-    System.out.println("Set number of days for automatic email deletion: (enter for default of 7 days)");
-    String line = reader.readLine();
-    if (!line.equals("")) {
-      deletionAge = Long.parseLong(line);
-    }
+//    System.out.println("Set number of days for automatic email deletion: (enter for default of 7 days)");
+//    String line = reader.readLine();
+//    if (!line.equals("")) {
+//      deletionAge = Long.parseLong(line);
+//    }
 
-    // Read emails
+    // Set date
     LocalDate localDate = LocalDate.now().minusDays(deletionAge);
     String date = localDate.format(DateTimeFormatter.ISO_LOCAL_DATE);
-    ListMessagesResponse messagesResponse = service.users().messages().list(user).setQ("before:"+date).execute();
-    List<Message> messages = getMessages(messagesResponse.getMessages(), service, user);
-    for (Message message : messages) {
-      System.out.printf("- %s\n", message.getSnippet());
-    }
+
+    // Loop through emails
+//    while (!empty) {
+      ListMessagesResponse messagesResponse = service.users().messages().list(user).setQ("before:"+date).setMaxResults(1l).execute();
+      List<Message> messages = getMessages(messagesResponse.getMessages(), service, user);
+      for (Message message : messages) {
+//        System.out.printf("Delete emails from %s after %l days? (enter for yes, any other input for no)", );
+        Map<String, String> headersMap = getHeadersMap(message);
+        System.out.printf("- %s\n", headersMap.get("From"));
+      }
+//    }
 
     writer.close();
   }
@@ -164,5 +174,14 @@ public class EmailManager {
     batch.execute();
 
     return messages;
+  }
+
+  private static Map<String, String> getHeadersMap(Message message) {
+    List<MessagePartHeader> headers = message.getPayload().getHeaders();
+    Map<String, String> headersMap = new HashMap<>();
+    for (MessagePartHeader header : headers) {
+      headersMap.put(header.getName(), header.getValue());
+    }
+    return headersMap;
   }
 }
