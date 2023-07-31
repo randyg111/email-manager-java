@@ -7,6 +7,7 @@ import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.googleapis.batch.BatchRequest;
 import com.google.api.client.googleapis.batch.json.JsonBatchCallback;
 import com.google.api.client.googleapis.json.GoogleJsonError;
+import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.client.http.HttpHeaders;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
@@ -36,6 +37,13 @@ import java.util.Map;
 import java.util.HashMap;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.Properties;
+import javax.mail.MessagingException;
+import javax.mail.Session;
+import javax.mail.internet.InternetAddress;
+import javax.mail.internet.MimeMessage;
+import java.io.ByteArrayOutputStream;
+import org.apache.commons.codec.binary.Base64;
 
 /* class to demonstrate use of Gmail list labels API */
 public class EmailManager {
@@ -60,9 +68,10 @@ public class EmailManager {
   private static final String CREDENTIALS_FILE_PATH = "/credentials.json";
 
   /**
-   * Directory to store email addresses whose emails should be deleted.
+   * Directory to store email addresses whose emails should be deleted or archived.
    */
-  private static final String ADDRESSES_FILE_PATH = "addresses.txt";
+  private static final String ADDRESSES_DELETE_FILE_PATH = "addresses_delete.txt";
+  private static final String ADDRESSES_ARCHIVE_FILE_PATH = "addresses_archive.txt";
 
   /**
    * Creates an authorized Credential object.
@@ -98,7 +107,7 @@ public class EmailManager {
   // Add synchronization
   // Add gui
   // Chrome extension
-  public static void main(String... args) throws IOException, GeneralSecurityException, InterruptedException {
+  public static void main(String... args) throws IOException, GeneralSecurityException, InterruptedException, MessagingException {
     // Build a new authorized API client service.
     final NetHttpTransport HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
     Gmail service = new Gmail.Builder(HTTP_TRANSPORT, JSON_FACTORY, getCredentials(HTTP_TRANSPORT))
@@ -108,56 +117,75 @@ public class EmailManager {
     // Set user
     String user = "me";
 
-    // Create file with email addresses whose emails should be deleted
-    Path addressesFile = Paths.get(EmailManager.class.getResource("/").getPath() + ADDRESSES_FILE_PATH);
-    if (Files.notExists(addressesFile)) {
-      Files.createFile(addressesFile);
+    Message message = createMessageWithEmail(createEmail("", "", "", ""));
+    try {
+      // Create send message
+      message = service.users().messages().send("me", message).execute();
+      System.out.println("Message id: " + message.getId());
+      System.out.println(message.toPrettyString());
+    } catch (GoogleJsonResponseException e) {
+      // TODO(developer) - handle error appropriately
+      GoogleJsonError error = e.getDetails();
+      System.err.println(error.getMessage());
     }
-    Set<String> addresses = getAddresses(addressesFile);
 
-    // Write to addresses file if necessary
-    PrintWriter writer = new PrintWriter(Files.newBufferedWriter(addressesFile));
-
-    // Prompt on number of days after which to delete emails
-    BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
-    long deletionAge = 7;
+//    // Create file with email addresses whose emails should be deleted
+//    Path addressesDeleteFile = Paths.get(EmailManager.class.getResource("/").getPath() + ADDRESSES_DELETE_FILE_PATH);
+//    if (Files.notExists(addressesDeleteFile)) {
+//      Files.createFile(addressesDeleteFile);
+//    }
+//    Set<String> addressesDelete = getAddresses(addressesDeleteFile);
+//
+//    Path addressesArchiveFile = Paths.get(EmailManager.class.getResource("/").getPath() + ADDRESSES_ARCHIVE_FILE_PATH);
+//    if (Files.notExists(addressesArchiveFile)) {
+//      Files.createFile(addressesArchiveFile);
+//    }
+//    Set<String> addressesDelete = getAddresses(addressesArchiveFile);
+//
+//    // Write to addresses files if necessary
+//    PrintWriter writer = new PrintWriter(Files.newBufferedWriter(addressesDeleteFile));
+//    PrintWriter writer = new PrintWriter(Files.newBufferedWriter(addressesArchiveFile));
+//
+//    // Prompt on number of days after which to delete emails
+//    BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+//    long deletionAge = 7;
 //    System.out.println("Set number of days for automatic email deletion: (enter for default of 7 days)");
 //    String line = reader.readLine();
 //    if (!line.equals("")) {
 //      deletionAge = Long.parseLong(line);
 //    }
-
-    // Set date
-    LocalDate localDate = LocalDate.now().minusDays(deletionAge);
-    String date = localDate.format(DateTimeFormatter.ISO_LOCAL_DATE);
-
-    // Loop through emails, making 25 batch calls a second
-    String pageToken = null;
-    do {
-      long start = System.nanoTime();
-      ListMessagesResponse messagesResponse = null;
-      if (pageToken == null) {
-        messagesResponse = service.users().messages().list(user).setQ("before:"+date).setMaxResults(25l).execute();
-      } else {
-        messagesResponse = service.users().messages().list(user).setPageToken(pageToken).setMaxResults(25l).execute();
-      }
-      pageToken = messagesResponse.getNextPageToken();
-
-      List<Message> messages = getMessages(messagesResponse.getMessages(), service, user);
-      for (Message message : messages) {
-        // Prompt on whether to delete or archive emails
+//
+//    // Set date
+//    LocalDate localDate = LocalDate.now().minusDays(deletionAge);
+//    String date = localDate.format(DateTimeFormatter.ISO_LOCAL_DATE);
+//
+//    // Loop through emails, making 25 batch calls a second
+//    String pageToken = null;
+//    do {
+//      long start = System.nanoTime();
+//      ListMessagesResponse messagesResponse = null;
+//      if (pageToken == null) {
+//        messagesResponse = service.users().messages().list(user).setQ("before:"+date).setMaxResults(25l).execute();
+//      } else {
+//        messagesResponse = service.users().messages().list(user).setPageToken(pageToken).setMaxResults(25l).execute();
+//      }
+//      pageToken = messagesResponse.getNextPageToken();
+//
+//      List<Message> messages = getMessages(messagesResponse.getMessages(), service, user);
+//      for (Message message : messages) {
+//        // Prompt on whether to delete or archive emails
 //        System.out.printf("Delete emails from %s after %l days? (enter for yes, any other input for no)%n", );
-        Map<String, String> headersMap = getHeadersMap(message);
-        System.out.printf("- %s\n", headersMap.get("From"));
-      }
-      long timeTaken = System.nanoTime() - start;
-      if (timeTaken < 1000000000) {
-        long timeSleep = 1000000000 - timeTaken;
-        Thread.sleep(timeSleep / 1000000, (int) (timeSleep % 1000000));
-      }
-    } while (pageToken != null);
-
-    writer.close();
+//        Map<String, String> headersMap = getHeadersMap(message);
+//        System.out.printf("- %s\n", headersMap.get("From"));
+//      }
+//      long timeTaken = System.nanoTime() - start;
+//      if (timeTaken < 1000000000) {
+//        long timeSleep = 1000000000 - timeTaken;
+//        Thread.sleep(timeSleep / 1000000, (int) (timeSleep % 1000000));
+//      }
+//    } while (pageToken != null);
+//
+//    writer.close();
   }
 
   private static Set<String> getAddresses(Path addressesFile) throws IOException {
@@ -198,5 +226,52 @@ public class EmailManager {
       headersMap.put(header.getName(), header.getValue());
     }
     return headersMap;
+  }
+
+  /**
+   * Create a MimeMessage using the parameters provided.
+   *
+   * @param toEmailAddress   email address of the receiver
+   * @param fromEmailAddress email address of the sender, the mailbox account
+   * @param subject          subject of the email
+   * @param bodyText         body text of the email
+   * @return the MimeMessage to be used to send email
+   * @throws MessagingException - if a wrongly formatted address is encountered.
+   */
+  public static MimeMessage createEmail(String toEmailAddress,
+                                        String fromEmailAddress,
+                                        String subject,
+                                        String bodyText)
+          throws MessagingException {
+    Properties props = new Properties();
+    Session session = Session.getDefaultInstance(props, null);
+
+    MimeMessage email = new MimeMessage(session);
+
+    email.setFrom(new InternetAddress(fromEmailAddress));
+    email.addRecipient(javax.mail.Message.RecipientType.TO,
+            new InternetAddress(toEmailAddress));
+    email.setSubject(subject);
+    email.setText(bodyText);
+    return email;
+  }
+
+  /**
+   * Create a message from an email.
+   *
+   * @param emailContent Email to be set to raw of message
+   * @return a message containing a base64url encoded email
+   * @throws IOException        - if service account credentials file not found.
+   * @throws MessagingException - if a wrongly formatted address is encountered.
+   */
+  public static Message createMessageWithEmail(MimeMessage emailContent)
+          throws MessagingException, IOException {
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    emailContent.writeTo(buffer);
+    byte[] bytes = buffer.toByteArray();
+    String encodedEmail = Base64.encodeBase64URLSafeString(bytes);
+    Message message = new Message();
+    message.setRaw(encodedEmail);
+    return message;
   }
 }
