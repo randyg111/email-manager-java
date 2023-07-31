@@ -14,8 +14,6 @@ import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.util.store.FileDataStoreFactory;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.GmailScopes;
-import com.google.api.services.gmail.model.Label;
-import com.google.api.services.gmail.model.ListLabelsResponse;
 import com.google.api.services.gmail.model.Message;
 import com.google.api.services.gmail.model.ListMessagesResponse;
 import com.google.api.services.gmail.model.MessagePartHeader;
@@ -96,9 +94,11 @@ public class EmailManager {
   }
 
   // Prompt to unsubscribe from unread emails
+  // Remove ads
   // Add synchronization
   // Add gui
-  public static void main(String... args) throws IOException, GeneralSecurityException {
+  // Chrome extension
+  public static void main(String... args) throws IOException, GeneralSecurityException, InterruptedException {
     // Build a new authorized API client service.
     final NetHttpTransport HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
     Gmail service = new Gmail.Builder(HTTP_TRANSPORT, JSON_FACTORY, getCredentials(HTTP_TRANSPORT))
@@ -131,16 +131,31 @@ public class EmailManager {
     LocalDate localDate = LocalDate.now().minusDays(deletionAge);
     String date = localDate.format(DateTimeFormatter.ISO_LOCAL_DATE);
 
-    // Loop through emails
-//    while (!empty) {
-      ListMessagesResponse messagesResponse = service.users().messages().list(user).setQ("before:"+date).setMaxResults(1l).execute();
+    // Loop through emails, making 25 batch calls a second
+    String pageToken = null;
+    do {
+      long start = System.nanoTime();
+      ListMessagesResponse messagesResponse = null;
+      if (pageToken == null) {
+        messagesResponse = service.users().messages().list(user).setQ("before:"+date).setMaxResults(25l).execute();
+      } else {
+        messagesResponse = service.users().messages().list(user).setPageToken(pageToken).setMaxResults(25l).execute();
+      }
+      pageToken = messagesResponse.getNextPageToken();
+
       List<Message> messages = getMessages(messagesResponse.getMessages(), service, user);
       for (Message message : messages) {
-//        System.out.printf("Delete emails from %s after %l days? (enter for yes, any other input for no)", );
+        // Prompt on whether to delete or archive emails
+//        System.out.printf("Delete emails from %s after %l days? (enter for yes, any other input for no)%n", );
         Map<String, String> headersMap = getHeadersMap(message);
         System.out.printf("- %s\n", headersMap.get("From"));
       }
-//    }
+      long timeTaken = System.nanoTime() - start;
+      if (timeTaken < 1000000000) {
+        long timeSleep = 1000000000 - timeTaken;
+        Thread.sleep(timeSleep / 1000000, (int) (timeSleep % 1000000));
+      }
+    } while (pageToken != null);
 
     writer.close();
   }
